@@ -38,6 +38,7 @@ fun main() {
                 println("Введите число для расчета Фибоначчи: ")
                 val n = readln().toLong()
                 kThreadPool.addTask {
+                    println("Считаем число для $n")
                     val result = fibonacci(n)
                     println("Число Фибоначчи для $n  : $result")
                 }
@@ -55,6 +56,7 @@ fun main() {
             }
 
             Choice.EXIT_CHOICE.value -> {
+                kThreadPool.shutdown()
                 break
             }
         }

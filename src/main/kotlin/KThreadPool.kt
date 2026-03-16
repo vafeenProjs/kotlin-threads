@@ -1,44 +1,61 @@
 package com.example
 
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.Volatile
+import kotlin.concurrent.withLock
 
 class KThreadPool(
     private val countAvailableProcessors: Int = 2
 //    Runtime.getRuntime().availableProcessors()
 ) {
-    private var workers: MutableList<Job> = mutableListOf()
-    private var tasks: MutableList<suspend () -> Unit> = mutableListOf()
-        set(value) {
-            println("Изменение списка задач")
-            field = value
-        }
+    private val tasks = mutableListOf<() -> Unit>()
+    private val lock = ReentrantLock()
+    private val taskAvailable = lock.newCondition()
+
+    @Volatile
+    private var isThreadPoolActive = true
 
     init {
         for (i in 1..countAvailableProcessors) {
-            workers.add(GlobalScope.launch {
+            Thread {
                 println("Запуск $i процесса")
                 run()
-            })
+            }.start()
         }
     }
 
-
-    fun addTask(job: suspend () -> Unit) {
-        tasks = tasks.plus(job).toMutableList()
+    fun addTask(job: () -> Unit) {
+        lock.withLock {
+            println("Добавление задачи")
+            tasks.add(job)
+            taskAvailable.signal()
+        }
     }
 
-    private suspend fun run() {
-        while (true) {
-            var task: (suspend () -> Unit)? = null
-            // доступ к общему ресурсу только для одного "пользователя ресурсом" в одно время
-            synchronized(tasks) {
+    private fun run() {
+        while (isThreadPoolActive) {
+            var task: (() -> Unit)? = null
+
+            lock.withLock {
+                if (tasks.isEmpty() && isThreadPoolActive) {
+                    println("Ждем задачу")
+                    taskAvailable.await()
+                    println("Сейчас будем выполнять")
+                }
+
+                if (!isThreadPoolActive) return
+
                 task = tasks.removeFirstOrNull()
             }
+
             task?.invoke()
-            delay(1000)
+        }
+    }
+
+    fun shutdown() {
+        lock.withLock {
+            isThreadPoolActive = false
+            taskAvailable.signalAll()
         }
     }
 }
